@@ -54,6 +54,9 @@ const state = {
         resolution: 'min640',
         keepAudio: false,
         poseEnabled: false,
+        mocapMode: false,
+        temporalSmooth: 0,
+        globalNorm: false,
     },
     processing: {
         startTime: 0,
@@ -1764,8 +1767,13 @@ async function startDa3Processing() {
         form.append('fps', String(state.settings.fps));   // 0=自动（保持原视频帧率）
         form.append('frame_wise', 'true');     // 逐帧处理深度估计
         form.append('keep_audio', String(!!state.settings.keepAudio));
-        form.append('per_frame', 'true');      // 每帧全范围拉伸
+        // per_frame：mocapMode 开启时使用全局归一化（per_frame=false），否则逐帧拉伸
+        form.append('per_frame', state.settings.mocapMode ? 'false' : 'true');
         form.append('pose_enabled', String(!!state.settings.poseEnabled));
+        // 深度动作捕捉参数
+        form.append('mocap_mode', String(!!state.settings.mocapMode));
+        form.append('temporal_smooth', String((state.settings.temporalSmooth || 0) / 100));
+        form.append('global_norm', String(!!state.settings.globalNorm));
 
         const resp = await fetch(`${DA3_SERVER}/api/convert`, { method: 'POST', body: form });
         const data = await resp.json();
@@ -2599,6 +2607,54 @@ function bindEvents() {
         });
     }
 
+    // 深度动作捕捉模式开关（开启时自动设置推荐参数）
+    const mocapModeGroup = $('mocap-mode-group');
+    if (mocapModeGroup) {
+        mocapModeGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('.toggle-btn');
+            if (!btn) return;
+            mocapModeGroup.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const enabled = btn.dataset.mocap === 'true';
+            state.settings.mocapMode = enabled;
+            if (enabled) {
+                // 一键预设：时序平滑 0.7 + 全局归一化
+                state.settings.temporalSmooth = 70;
+                state.settings.globalNorm = true;
+                $('temporal-smooth-slider').value = 70;
+                $('temporal-smooth-value').textContent = '70';
+                $('global-norm-group-toggle').querySelectorAll('.toggle-btn').forEach(b =>
+                    b.classList.toggle('active', b.dataset.globalnorm === 'true'));
+            }
+            saveSettings();
+        });
+    }
+
+    // 时序平滑滑块
+    const temporalSlider = $('temporal-smooth-slider');
+    if (temporalSlider) {
+        temporalSlider.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.settings.temporalSmooth = val;
+            $('temporal-smooth-value').textContent = val;
+            // 手动调整时序平滑时，若 mocapMode 开启则保持（服务端会覆盖为 0.7）
+            saveSettings();
+        });
+    }
+
+    // 全局归一化开关
+    const globalNormGroup = $('global-norm-group-toggle');
+    if (globalNormGroup) {
+        globalNormGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('.toggle-btn');
+            if (!btn) return;
+            globalNormGroup.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.settings.globalNorm = btn.dataset.globalnorm === 'true';
+            saveSettings();
+        });
+    }
+
     // 首页入口：点击左上角 logo 返回首页
     const logoHome = $('logo-home');
     if (logoHome) {
@@ -2812,6 +2868,21 @@ async function restoreSession() {
         if (poseGroup) {
             poseGroup.querySelectorAll('.toggle-btn').forEach(b =>
                 b.classList.toggle('active', b.dataset.pose === String(!!saved.poseEnabled)));
+        }
+        // 深度动作捕捉参数恢复
+        const mocapModeGroup = $('mocap-mode-group');
+        if (mocapModeGroup) {
+            mocapModeGroup.querySelectorAll('.toggle-btn').forEach(b =>
+                b.classList.toggle('active', b.dataset.mocap === String(!!saved.mocapMode)));
+        }
+        if (saved.temporalSmooth != null) {
+            $('temporal-smooth-slider').value = saved.temporalSmooth;
+            $('temporal-smooth-value').textContent = saved.temporalSmooth;
+        }
+        const globalNormGroup = $('global-norm-group-toggle');
+        if (globalNormGroup) {
+            globalNormGroup.querySelectorAll('.toggle-btn').forEach(b =>
+                b.classList.toggle('active', b.dataset.globalnorm === String(!!saved.globalNorm)));
         }
     }
 

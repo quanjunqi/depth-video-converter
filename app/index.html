@@ -220,6 +220,39 @@
                                     <button class="toggle-btn" data-pose="true">开启</button>
                                 </div>
                             </div>
+
+                            <div class="setting-divider"></div>
+
+                            <div class="setting-row">
+                                <label class="setting-label">
+                                    <span>深度动作捕捉</span>
+                                    <span class="setting-desc">时序平滑 + 全局归一化，提升深度视频的动作连贯性（推荐用于动作参考）</span>
+                                </label>
+                                <div class="toggle-group" id="mocap-mode-group">
+                                    <button class="toggle-btn active" data-mocap="false">关闭</button>
+                                    <button class="toggle-btn" data-mocap="true">开启</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-group" id="temporal-smooth-group">
+                                <label class="setting-label">
+                                    <span>时序平滑</span>
+                                    <span class="setting-value" id="temporal-smooth-value">0</span>
+                                </label>
+                                <input type="range" id="temporal-smooth-slider" min="0" max="100" value="0" class="slider">
+                                <span class="setting-desc" style="display:block;margin-top:4px;">抑制帧间深度跳变，0=关闭，越大越平滑（动作捕捉推荐 70）</span>
+                            </div>
+
+                            <div class="setting-row" id="global-norm-group">
+                                <label class="setting-label">
+                                    <span>全局归一化</span>
+                                    <span class="setting-desc">全片统一深度范围，消除帧间亮度闪烁</span>
+                                </label>
+                                <div class="toggle-group" id="global-norm-group-toggle">
+                                    <button class="toggle-btn active" data-globalnorm="false">关闭</button>
+                                    <button class="toggle-btn" data-globalnorm="true">开启</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="settings-footer">
                             <button class="btn btn-ghost" id="back-to-upload-btn">
