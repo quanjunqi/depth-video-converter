@@ -3050,4 +3050,225 @@ async function startClip() {
     }
 }
 
-init();
+// ============================================================
+// 视频音频处理页面
+// ============================================================
+const AudioState = {
+    file: null, videoPath: null, mode: 'vocals_only',
+    taskId: null, pollTimer: null,
+};
+
+function audioInit() {
+    // 导航
+    $('audio-nav-btn')?.addEventListener('click', () => showSection('audio-section'));
+
+    // 上传
+    const upArea = $('audio-upload-area');
+    const fileInput = $('audio-file-input');
+    upArea?.addEventListener('click', () => fileInput?.click());
+    $('audio-upload-link')?.addEventListener('click', e => { e.stopPropagation(); fileInput?.click(); });
+    fileInput?.addEventListener('change', e => { if (e.target.files[0]) audioLoadVideo(e.target.files[0]); });
+    upArea?.addEventListener('dragover', e => { e.preventDefault(); upArea.classList.add('dragover'); });
+    upArea?.addEventListener('dragleave', () => upArea.classList.remove('dragover'));
+    upArea?.addEventListener('drop', e => {
+        e.preventDefault(); upArea.classList.remove('dragover');
+        if (e.dataTransfer.files[0]) audioLoadVideo(e.dataTransfer.files[0]);
+    });
+
+    // 模式选择
+    document.querySelectorAll('.audio-mode-card').forEach(card => {
+        card.addEventListener('click', () => {
+            document.querySelectorAll('.audio-mode-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            AudioState.mode = card.dataset.mode;
+            // 静音模式不需要 Demucs
+            const needDemucs = AudioState.mode !== 'mute';
+            $('audio-model-row').style.display = needDemucs ? '' : 'none';
+        });
+    });
+
+    // 开始处理
+    $('audio-start-btn')?.addEventListener('click', audioStartProcess);
+
+    // 重新处理
+    $('audio-reset-btn')?.addEventListener('click', () => {
+        $('audio-result').style.display = 'none';
+        $('audio-progress').style.display = 'none';
+        $('audio-start-btn').disabled = false;
+    });
+
+    // 检查 Demucs 状态
+    audioCheckDemucs();
+}
+
+async function audioCheckDemucs() {
+    try {
+        const resp = await fetch(`${DA3_SERVER}/api/audio-process/status`);
+        const data = await resp.json();
+        const el = $('audio-demucs-status');
+        if (data.demucs_available) {
+            el.textContent = 'Demucs 已就绪';
+            el.className = 'audio-demucs-status available';
+        } else {
+            el.textContent = 'Demucs 未安装（仅静音模式可用）';
+            el.className = 'audio-demucs-status unavailable';
+        }
+    } catch (e) {
+        $('audio-demucs-status').textContent = '状态检测失败';
+    }
+}
+
+async function audioLoadVideo(file) {
+    AudioState.file = file;
+    const url = URL.createObjectURL(file);
+    $('audio-player').src = url;
+    $('audio-filename').textContent = file.name;
+    $('audio-meta').textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+
+    // 上传到服务端
+    const form = new FormData();
+    form.append('video', file);
+    try {
+        const resp = await fetch(`${DA3_SERVER}/api/audio-process/upload`, { method: 'POST', body: form });
+        const data = await resp.json();
+        AudioState.videoPath = data.path || data.filename;
+    } catch (e) {
+        AudioState.videoPath = file.name;
+    }
+
+    $('audio-upload-area').style.display = 'none';
+    $('audio-process-area').style.display = 'flex';
+
+    // 等待视频元数据加载
+    const player = $('audio-player');
+    await new Promise(resolve => {
+        if (player.readyState >= 1) resolve();
+        else player.addEventListener('loadedmetadata', resolve, { once: true });
+    });
+    $('audio-meta').textContent = `${player.videoWidth}x${player.videoHeight} · ${fmtTime(player.duration)} · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function audioStartProcess() {
+    if (!AudioState.videoPath) { showToast('请先上传视频', 'warning'); return; }
+
+    const mode = AudioState.mode;
+    const needDemucs = mode !== 'mute';
+
+    // 检查 Demucs
+    if (needDemucs) {
+        try {
+            const resp = await fetch(`${DA3_SERVER}/api/audio-process/status`);
+            const data = await resp.json();
+            if (!data.demucs_available) {
+                showToast('Demucs 未安装，人声/环境音分离不可用。请运行 pip install demucs', 'error', 8000);
+                return;
+            }
+        } catch (e) {
+            showToast('无法检测 Demucs 状态', 'error');
+            return;
+        }
+    }
+
+    const btn = $('audio-start-btn');
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+    $('audio-progress').style.display = 'flex';
+    $('audio-result').style.display = 'none';
+    $('audio-progress-bar').style.width = '0%';
+    $('audio-progress-text').textContent = '0%';
+    $('audio-progress-msg').textContent = '准备中...';
+
+    try {
+        const resp = await fetch(`${DA3_SERVER}/api/audio-process/start`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_path: AudioState.videoPath,
+                mode: mode,
+                model: $('audio-model-select').value
+            })
+        });
+        const data = await resp.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+            btn.disabled = false;
+            btn.textContent = '开始处理';
+            return;
+        }
+        AudioState.taskId = data.task_id;
+        audioPollTask();
+    } catch (e) {
+        showToast(`启动失败: ${e.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = '开始处理';
+    }
+}
+
+function audioPollTask() {
+    if (AudioState.pollTimer) clearInterval(AudioState.pollTimer);
+    AudioState.pollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(`${DA3_SERVER}/api/audio-process/task/${AudioState.taskId}`);
+            const data = await resp.json();
+            $('audio-progress-bar').style.width = (data.progress * 100) + '%';
+            $('audio-progress-text').textContent = Math.round(data.progress * 100) + '%';
+            if (data.message) $('audio-progress-msg').textContent = data.message;
+
+            if (data.status === 'done') {
+                clearInterval(AudioState.pollTimer);
+                $('audio-progress').style.display = 'none';
+                $('audio-start-btn').disabled = false;
+                $('audio-start-btn').textContent = '开始处理';
+                audioShowResult(data.result);
+            } else if (data.status === 'error') {
+                clearInterval(AudioState.pollTimer);
+                $('audio-progress').style.display = 'none';
+                $('audio-start-btn').disabled = false;
+                $('audio-start-btn').textContent = '开始处理';
+                showToast(`处理失败: ${data.error}`, 'error', 8000);
+            }
+        } catch (e) {
+            console.warn('轮询失败', e);
+        }
+    }, 800);
+}
+
+function audioShowResult(result) {
+    const modeNames = { vocals_only: '只保留人声', ambient_only: '只保留环境音', mute: '无声音' };
+    const modeName = modeNames[result.mode] || result.mode;
+    let html = `<p style="margin-bottom:12px;font-size:14px;">模式：${modeName}</p>`;
+    html += `
+        <div class="result-file-item">
+            <span>处理后视频.mp4</span>
+            <a class="btn btn-primary btn-sm" href="${DA3_SERVER}/api/audio-process/download/${AudioState.taskId}">下载视频</a>
+        </div>`;
+    if (result.vocals_path) {
+        html += `
+            <div class="result-file-item">
+                <span>分离的人声.wav</span>
+                <a class="btn btn-secondary btn-sm" href="${DA3_SERVER}/api/audio-process/download-stem/${AudioState.taskId}/vocals">下载</a>
+            </div>`;
+    }
+    if (result.ambient_path) {
+        html += `
+            <div class="result-file-item">
+                <span>分离的环境音.wav</span>
+                <a class="btn btn-secondary btn-sm" href="${DA3_SERVER}/api/audio-process/download-stem/${AudioState.taskId}/ambient">下载</a>
+            </div>`;
+    }
+    $('audio-result-content').innerHTML = html;
+    $('audio-result').style.display = 'block';
+    showToast('处理完成', 'success');
+}
+
+// 在 init 后初始化音频处理页面
+const _audioOrigInit = typeof init === 'function' ? init : null;
+if (_audioOrigInit) {
+    const _audioWrappedInit = async function() {
+        await _audioOrigInit();
+        audioInit();
+    };
+    window.init = _audioWrappedInit;
+    _audioWrappedInit();
+} else {
+    audioInit();
+}

@@ -1414,3 +1414,207 @@ body::before {
 .processing-preview.pose-mode .preview-frame-card { max-width: 260px; }
 .processing-preview.pose-mode .preview-arrow { display: flex !important; }
 .processing-preview.pose-mode #pose-frame-card { display: block !important; }
+
+/* ============================================================
+   视频音频处理页面
+   ============================================================ */
+.audio-workspace {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.audio-upload-area {
+    border: 2px dashed var(--border-color);
+    border-radius: 16px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--card-bg);
+}
+.audio-upload-area:hover, .audio-upload-area.dragover {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.05);
+}
+.audio-upload-icon {
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+.audio-upload-area p {
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+.audio-process-area {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.audio-video-info {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+}
+.audio-preview-video {
+    width: 320px;
+    max-height: 200px;
+    border-radius: 8px;
+    background: #000;
+    flex-shrink: 0;
+}
+.audio-info-text {
+    flex: 1;
+    min-width: 0;
+}
+.audio-filename {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 8px;
+    word-break: break-all;
+}
+.audio-meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.audio-mode-selector {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+}
+.audio-mode-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 16px;
+}
+.audio-mode-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+.audio-mode-card {
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg-color);
+}
+.audio-mode-card:hover {
+    border-color: var(--accent);
+}
+.audio-mode-card.active {
+    border-color: var(--accent);
+    background: rgba(99,102,241,0.08);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+.mode-icon {
+    color: var(--accent);
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: center;
+}
+.mode-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 6px;
+}
+.mode-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.audio-model-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 16px 20px;
+}
+.audio-model-row label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+.audio-model-row select {
+    flex: 1;
+    max-width: 300px;
+}
+.audio-demucs-status {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+.audio-demucs-status.available {
+    color: #52c41a;
+}
+.audio-demucs-status.unavailable {
+    color: #faad14;
+}
+
+.audio-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 16px 20px;
+}
+.audio-progress .progress-bar-wrap {
+    flex: 1;
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.audio-progress .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.3s;
+    width: 0%;
+}
+.audio-progress span {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-family: monospace;
+}
+
+.audio-result {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+}
+.audio-result .result-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.audio-result .result-head h3 {
+    font-size: 16px;
+    color: var(--text-color);
+}
+.result-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-color);
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+.result-file-item span {
+    font-size: 13px;
+    color: var(--text-color);
+}
