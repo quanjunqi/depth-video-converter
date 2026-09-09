@@ -142,6 +142,17 @@
 
                             <div class="setting-group">
                                 <label class="setting-label">
+                                    <span>推理模式</span>
+                                    <span class="setting-desc">逐帧更快，多视角窗口时序更稳</span>
+                                </label>
+                                <div class="toggle-group" id="infer-mode-group">
+                                    <button class="toggle-btn active" data-framewise="true">逐帧推理</button>
+                                    <button class="toggle-btn" data-framewise="false">多视角窗口</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
                                     <span>深度方向</span>
                                     <span class="setting-desc">控制近处物体的明暗</span>
                                 </label>
@@ -154,6 +165,17 @@
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.3"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg>
                                         近暗远亮
                                     </button>
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>深度归一化</span>
+                                    <span class="setting-desc">逐帧独立拉伸或全片统一范围</span>
+                                </label>
+                                <div class="toggle-group" id="norm-mode-group">
+                                    <button class="toggle-btn active" data-perframe="true">逐帧拉伸</button>
+                                    <button class="toggle-btn" data-perframe="false">全局统一</button>
                                 </div>
                             </div>
 

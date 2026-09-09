@@ -54,6 +54,8 @@ const state = {
         resolution: 'min640',
         keepAudio: false,
         poseEnabled: false,
+        frameWise: true,
+        perFrame: true,
         mocapMode: false,
         temporalSmooth: 0,
         globalNorm: false,
@@ -1765,10 +1767,9 @@ async function startDa3Processing() {
         form.append('brightness', String(state.settings.brightness || 0));
         form.append('scale', String(state.settings.resolution || 1));
         form.append('fps', String(state.settings.fps));   // 0=自动（保持原视频帧率）
-        form.append('frame_wise', 'true');     // 逐帧处理深度估计
+        form.append('frame_wise', String(!!state.settings.frameWise));
         form.append('keep_audio', String(!!state.settings.keepAudio));
-        // per_frame：mocapMode 开启时使用全局归一化（per_frame=false），否则逐帧拉伸
-        form.append('per_frame', state.settings.mocapMode ? 'false' : 'true');
+        form.append('per_frame', String(!!state.settings.perFrame));
         form.append('pose_enabled', String(!!state.settings.poseEnabled));
         // 深度动作捕捉参数
         form.append('mocap_mode', String(!!state.settings.mocapMode));
@@ -2550,6 +2551,32 @@ function bindEvents() {
         saveSettings();
     });
 
+    // 推理模式（逐帧/多视角窗口）
+    const inferModeGroup = $('infer-mode-group');
+    if (inferModeGroup) {
+        inferModeGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('.toggle-btn');
+            if (!btn) return;
+            inferModeGroup.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.settings.frameWise = btn.dataset.framewise === 'true';
+            saveSettings();
+        });
+    }
+
+    // 深度归一化（逐帧拉伸/全局统一）
+    const normModeGroup = $('norm-mode-group');
+    if (normModeGroup) {
+        normModeGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('.toggle-btn');
+            if (!btn) return;
+            normModeGroup.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.settings.perFrame = btn.dataset.perframe === 'true';
+            saveSettings();
+        });
+    }
+
     // Contrast slider
     $('contrast-slider').addEventListener('input', (e) => {
         state.settings.contrast = parseInt(e.target.value);
@@ -2618,13 +2645,16 @@ function bindEvents() {
             const enabled = btn.dataset.mocap === 'true';
             state.settings.mocapMode = enabled;
             if (enabled) {
-                // 一键预设：时序平滑 0.7 + 全局归一化
+                // 一键预设：时序平滑 0.7 + 全局归一化 + 全局深度范围
                 state.settings.temporalSmooth = 70;
                 state.settings.globalNorm = true;
+                state.settings.perFrame = false;
                 $('temporal-smooth-slider').value = 70;
                 $('temporal-smooth-value').textContent = '70';
                 $('global-norm-group-toggle').querySelectorAll('.toggle-btn').forEach(b =>
                     b.classList.toggle('active', b.dataset.globalnorm === 'true'));
+                $('norm-mode-group').querySelectorAll('.toggle-btn').forEach(b =>
+                    b.classList.toggle('active', b.dataset.perframe === 'false'));
             }
             saveSettings();
         });
@@ -2856,6 +2886,18 @@ async function restoreSession() {
         const inv = !!saved.invert;
         $('depth-direction').querySelectorAll('.toggle-btn').forEach(b =>
             b.classList.toggle('active', b.dataset.invert === String(inv)));
+        // 推理模式恢复
+        const inferModeGroup = $('infer-mode-group');
+        if (inferModeGroup) {
+            inferModeGroup.querySelectorAll('.toggle-btn').forEach(b =>
+                b.classList.toggle('active', b.dataset.framewise === String(!!saved.frameWise)));
+        }
+        // 深度归一化恢复
+        const normModeGroup = $('norm-mode-group');
+        if (normModeGroup) {
+            normModeGroup.querySelectorAll('.toggle-btn').forEach(b =>
+                b.classList.toggle('active', b.dataset.perframe === String(!!saved.perFrame)));
+        }
         if (saved.contrast != null) { $('contrast-slider').value = saved.contrast; $('contrast-value').textContent = saved.contrast; }
         if (saved.brightness != null) { $('brightness-slider').value = saved.brightness; $('brightness-value').textContent = saved.brightness; }
         $('fps-group').querySelectorAll('.toggle-btn').forEach(b =>
