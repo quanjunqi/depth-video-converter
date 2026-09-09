@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>深度视频转换器 · Depth Video Converter</title>
+    <meta name="description" content="深度视频转换器：使用 AI 深度估计模型，将视频转换为黑白深度图视频，支持浏览器本地与 DA3 本地引擎双模式">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+
+    <!-- 预加载 mp4-muxer（IIFE 格式，兼容 file:// 协议直接打开） -->
+    <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.js"></script>
+</head>
+<body>
+    <div class="app">
+        <!-- ===== Header ===== -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo" id="logo-home" title="返回首页">
+                    <div class="logo-text">
+                        <span class="logo-title">深度视频转换器</span>
+                        <span class="logo-subtitle">Depth Video Converter</span>
+                    </div>
+                </div>
+                <div class="header-badges">
+                    <span class="badge" title="所有处理在本地完成">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        本地处理
+                    </span>
+                    <span class="badge" title="基于 Depth Anything AI 模型">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                        AI 驱动
+                    </span>
+                    <button class="badge badge-btn" id="clip-nav-btn" title="视频分段裁剪">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+                        视频裁剪
+                    </button>
+                    <button class="badge badge-btn" id="tasks-nav-btn" title="查看历史与进行中的任务">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+                        任务记录
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- ===== Main ===== -->
+        <main class="main">
+
+            <!-- Step 1: Upload -->
+            <section id="upload-section" class="section active">
+                <div class="upload-hero">
+                    <h2 class="hero-title">将视频转化为<span class="gradient-text">黑白深度视频</span></h2>
+                    <p class="hero-desc">上传任意视频，AI 会逐帧分析场景深度，生成富有层次感的黑白深度视频。全部在浏览器中完成，无需上传，保护隐私。</p>
+                </div>
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-glow"></div>
+                    <div class="upload-content">
+                        <div class="upload-icon">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                        </div>
+                        <h3>拖放视频文件到此处</h3>
+                        <p class="upload-hint">或 <span class="link">点击选择文件</span></p>
+                        <input type="file" id="file-input" accept="video/*" hidden>
+                        <div class="upload-formats">支持 MP4 · WebM · MOV · AVI 等格式</div>
+                    </div>
+                </div>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🎯</div>
+                        <h4>高精度深度估计</h4>
+                        <p>基于 Depth Anything 3 模型，准确感知场景中每个像素的深度信息</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h4>本地引擎加速</h4>
+                        <p>本地深度引擎逐帧推理，自动使用 GPU 加速，大幅提升处理速度</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🎨</div>
+                        <h4>可调节效果</h4>
+                        <p>自由控制深度方向、对比度、亮度，打造理想的黑白深度视觉效果</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🔒</div>
+                        <h4>完全本地处理</h4>
+                        <p>视频数据从不离开你的设备，零隐私顾虑，无需注册</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 2: Settings & Preview -->
+            <section id="settings-section" class="section">
+                <div class="section-header">
+                    <h2>转换设置</h2>
+                    <p>调整参数以获得理想的深度视频效果</p>
+                </div>
+                <div class="settings-layout">
+                    <div class="video-preview-card">
+                        <div class="card-header">
+                            <h3>原始视频预览</h3>
+                        </div>
+                        <div class="video-wrapper">
+                            <video id="preview-video" controls playsinline></video>
+                        </div>
+                        <div class="video-info" id="video-info"></div>
+                    </div>
+                    <div class="settings-card">
+                        <div class="card-header">
+                            <h3>参数设置</h3>
+                        </div>
+                        <div class="settings-body">
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>AI 模型</span>
+                                    <span class="setting-desc" id="model-desc">轻量快速，适合大多数场景</span>
+                                </label>
+                                <div class="custom-select" id="model-select-wrap">
+                                    <select id="model-select">
+                                        <optgroup label="本地 DA3 引擎（高质量，推荐）">
+                                            <option value="da3:da3-small" data-da3="true" data-desc="本地 DA3 Small（80M），多视角一致推理，时间稳定（推荐）" selected>DA3 Small（推荐）</option>
+                                            <option value="da3:da3-base" data-da3="true" data-desc="本地 DA3 Base（120M），精度更高">DA3 Base</option>
+                                            <option value="da3:da3mono-large" data-da3="true" data-desc="本地 DA3 Mono Large（350M），专用单目深度">DA3 Mono Large</option>
+                                        </optgroup>
+                                        <optgroup label="浏览器内置（零安装，直接使用）">
+                                            <option value="onnx-community/depth-anything-v2-small-ONNX" data-desc="V2 轻量版，优先从 ModelScope 国内镜像加载">Depth Anything V2 Small（国内源）</option>
+                                            <option value="onnx-community/depth-anything-v2-small" data-desc="V2 轻量版，从 HuggingFace 官方加载（需可访问 HF 的网络）">Depth Anything V2 Small（官方源）</option>
+                                            <option value="Xenova/depth-anything-small-hf" data-desc="V1 轻量版，处理速度快">Depth Anything V1 Small</option>
+                                            <option value="Xenova/depth-anything-base-hf" data-desc="V1 基础版，深度精度更高，处理较慢">Depth Anything V1 Base</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div class="da3-status" id="da3-status" style="display:none;">
+                                    <span class="da3-dot" id="da3-status-dot"></span>
+                                    <span id="da3-status-text">正在检测本地 DA3 服务...</span>
+                                    <button type="button" class="da3-retry" id="da3-retry-btn">重新检测</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>深度方向</span>
+                                    <span class="setting-desc">控制近处物体的明暗</span>
+                                </label>
+                                <div class="toggle-group" id="depth-direction">
+                                    <button class="toggle-btn active" data-invert="false">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.9"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg>
+                                        近亮远暗
+                                    </button>
+                                    <button class="toggle-btn" data-invert="true">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity="0.3"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg>
+                                        近暗远亮
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>对比度</span>
+                                    <span class="setting-value" id="contrast-value">0</span>
+                                </label>
+                                <input type="range" id="contrast-slider" min="-100" max="100" value="0" class="slider">
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>亮度</span>
+                                    <span class="setting-value" id="brightness-value">0</span>
+                                </label>
+                                <input type="range" id="brightness-slider" min="-100" max="100" value="0" class="slider">
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>输出帧率</span>
+                                    <span class="setting-desc">帧率越高越流畅，处理时间越长</span>
+                                </label>
+                                <div class="toggle-group" id="fps-group">
+                                    <button class="toggle-btn active" data-fps="0">自动（同原视频）</button>
+                                    <button class="toggle-btn" data-fps="24">24 FPS</button>
+                                    <button class="toggle-btn" data-fps="30">30 FPS</button>
+                                    <button class="toggle-btn" data-fps="60">60 FPS</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>输出尺寸</span>
+                                    <span class="setting-desc">较小的尺寸处理更快</span>
+                                </label>
+                                <div class="toggle-group" id="resolution-group">
+                                    <button class="toggle-btn active" data-res="min640">≥640</button>
+                                    <button class="toggle-btn" data-res="0.5">50%</button>
+                                    <button class="toggle-btn" data-res="0.75">75%</button>
+                                    <button class="toggle-btn" data-res="1">100%</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-row">
+                                <label class="setting-label">
+                                    <span>保留原声</span>
+                                    <span class="setting-desc">将原始视频的音频保留到深度视频中</span>
+                                </label>
+                                <div class="toggle-group" id="audio-group">
+                                    <button class="toggle-btn active" data-audio="false">关闭</button>
+                                    <button class="toggle-btn" data-audio="true">保留原声</button>
+                                </div>
+                            </div>
+
+                            <div class="setting-row">
+                                <label class="setting-label">
+                                    <span>同时输出骨架</span>
+                                    <span class="setting-desc">逐帧人体姿态估计，额外输出纯骨架视频（黑底白骨架，支持多人）</span>
+                                </label>
+                                <div class="toggle-group" id="pose-group">
+                                    <button class="toggle-btn active" data-pose="false">关闭</button>
+                                    <button class="toggle-btn" data-pose="true">开启</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="settings-footer">
+                            <button class="btn btn-ghost" id="back-to-upload-btn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                                重新选择
+                            </button>
+                            <button class="btn btn-primary btn-large" id="start-btn">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/></svg>
+                                开始转换
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 3: 任务列表 -->
+            <section id="tasks-section" class="section">
+                <div class="section-header tasks-header">
+                    <div>
+                        <h2>任务</h2>
+                        <p>最多同时运行 2 个任务 · 记录在本地保留（刷新/重启不丢失）</p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="tasks-manage-btn">批量管理</button>
+                </div>
+                <div class="task-list" id="task-list"></div>
+                <div class="tasks-manage-bar" id="tasks-manage-bar" style="display: none;">
+                    <label class="tasks-select-all">
+                        <input type="checkbox" id="tasks-select-all"> 全选
+                    </label>
+                    <div class="tasks-manage-actions">
+                        <button class="btn btn-danger btn-sm" id="tasks-delete-btn" disabled>删除选中</button>
+                        <button class="btn btn-secondary btn-sm" id="tasks-manage-cancel-btn">取消</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 视频裁剪 -->
+            <section id="clip-section" class="section">
+                <div class="section-header">
+                    <h2>视频裁剪</h2>
+                    <p>按指定秒数将视频分段裁剪，按项目编号存放到专用目录</p>
+                </div>
+                <div class="clip-form">
+                    <div class="clip-form-row">
+                        <div class="clip-form-group">
+                            <label>项目编号</label>
+                            <input type="text" id="clip-project-id" placeholder="如：project_001（不填则自动生成）">
+                        </div>
+                        <div class="clip-form-group">
+                            <label>每段时长（秒）</label>
+                            <input type="number" id="clip-seconds" value="10" min="1" step="1">
+                        </div>
+                    </div>
+                    <div class="clip-upload-area" id="clip-upload-area">
+                        <div class="clip-upload-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        </div>
+                        <p>拖放视频到此处，或<span class="link">点击选择文件</span></p>
+                        <input type="file" id="clip-file-input" accept="video/*" hidden>
+                    </div>
+                    <div class="clip-file-info" id="clip-file-info" style="display:none;"></div>
+                    <button class="btn btn-primary" id="clip-start-btn" disabled>开始裁剪</button>
+                </div>
+                <div class="clip-result" id="clip-result" style="display:none;">
+                    <div class="clip-result-head">
+                        <h3>裁剪完成</h3>
+                        <button class="btn btn-secondary btn-sm" id="clip-reset-btn">重新裁剪</button>
+                    </div>
+                    <div class="clip-result-meta">
+                        <div><span class="clip-meta-label">项目编号：</span><span id="clip-result-project"></span></div>
+                        <div><span class="clip-meta-label">输出目录：</span><span id="clip-result-dir" class="clip-dir"></span></div>
+                        <div><span class="clip-meta-label">分段数量：</span><span id="clip-result-count"></span></div>
+                    </div>
+                    <div class="clip-segment-list" id="clip-segment-list"></div>
+                </div>
+            </section>
+
+            <!-- Step 3b: 任务进度详情 -->
+            <section id="processing-section" class="section">
+                <div class="processing-container">
+                    <div class="section-header">
+                        <div class="task-detail-head">
+                            <button class="btn btn-secondary btn-sm" id="back-to-tasks-btn">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+                                任务列表
+                            </button>
+                            <button class="btn btn-danger btn-sm" id="task-stop-btn" style="display:none;">停止任务</button>
+                            <div>
+                                <h2 id="task-detail-title">任务进度</h2>
+                                <p id="processing-status">正在获取任务状态...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="processing-preview" id="processing-preview">
+                        <div class="preview-frame-card">
+                            <div class="preview-label">原始帧</div>
+                            <canvas id="original-canvas"></canvas>
+                        </div>
+                        <div class="preview-arrow">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                        </div>
+                        <div class="preview-frame-card">
+                            <div class="preview-label">深度帧</div>
+                            <canvas id="depth-canvas"></canvas>
+                        </div>
+                        <div class="preview-arrow" id="pose-arrow" style="display:none;">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                        </div>
+                        <div class="preview-frame-card" id="pose-frame-card" style="display:none;">
+                            <div class="preview-label">骨架帧</div>
+                            <canvas id="pose-canvas"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Model download panel -->
+                    <div class="model-download-panel" id="model-download-panel" style="display: none;">
+                        <div class="model-download-header">
+                            <div class="model-download-icon" id="model-dl-icon">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                            </div>
+                            <div class="model-download-titles">
+                                <h3 id="model-dl-title">正在下载 AI 深度模型</h3>
+                                <p id="model-dl-subtitle">首次使用需要下载约 240MB 模型文件，下载后会自动永久缓存到浏览器，后续无需重复下载</p>
+                            </div>
+                        </div>
+                        <div class="model-dl-overall">
+                            <div class="model-dl-bar-wrap">
+                                <div class="model-dl-bar">
+                                    <div class="model-dl-fill" id="model-dl-fill"></div>
+                                </div>
+                                <span class="model-dl-percent" id="model-dl-percent">0%</span>
+                            </div>
+                            <div class="model-dl-speed" id="model-dl-speed"></div>
+                        </div>
+                        <div class="model-dl-files" id="model-dl-files"></div>
+                    </div>
+
+                    <!-- Frame processing progress -->
+                    <div class="progress-section" id="progress-section">
+                        <div class="progress-bar-wrap">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress-fill"></div>
+                                <div class="progress-glow" id="progress-glow"></div>
+                            </div>
+                            <div class="progress-percent" id="progress-percent">0%</div>
+                        </div>
+                        <div class="progress-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">已处理帧数</span>
+                                <span class="stat-value" id="stat-frames">0 / 0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">处理速度</span>
+                                <span class="stat-value" id="stat-speed">-- fps</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">预计剩余</span>
+                                <span class="stat-value" id="stat-eta">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">已用时间</span>
+                                <span class="stat-value" id="stat-elapsed">0:00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="processing-log" id="processing-log"></div>
+
+                    <div class="error-detail" id="error-detail" style="display: none;">
+                        <div class="error-title">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            处理失败
+                        </div>
+                        <div class="error-message" id="error-message"></div>
+                        <div class="error-actions">
+                            <button class="btn btn-primary" id="retry-btn">重新尝试</button>
+                            <button class="btn btn-secondary" id="back-from-error-btn">返回修改设置</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 4: Result -->
+            <section id="result-section" class="section">
+                <div class="result-container">
+                    <div class="result-header">
+                        <div class="result-success">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        </div>
+                        <h2>转换完成！</h2>
+                        <p>你的黑白深度视频已准备就绪</p>
+                    </div>
+
+                    <div class="result-video-wrap">
+                        <video id="result-video" controls playsinline></video>
+                    </div>
+
+                    <div class="result-stats" id="result-stats"></div>
+
+                    <div class="result-actions">
+                        <button class="btn btn-primary btn-large" id="download-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            下载深度视频
+                        </button>
+                        <button class="btn btn-primary btn-large" id="download-pose-btn" style="display:none;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            下载骨架视频
+                        </button>
+                        <button class="btn btn-secondary btn-large" id="reset-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                            转换另一个视频
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- ===== Footer ===== -->
+        <footer class="footer">
+            <p>深度视频转换器 · 所有处理在本地完成 · 视频不会上传到任何服务器 · 基于 <a href="https://huggingface.co/depth-anything" target="_blank" rel="noopener">Depth Anything</a> AI 模型</p>
+        </footer>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

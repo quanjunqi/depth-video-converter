@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 模型权重（体积过大，不入库）
+weights/
+
+# 运行时数据
+uploads/
+outputs/
+logs/
+depth_tmp/
+preview/
+clips/
+.preview/
+jobs.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 环境变量
+.env
+.venv/
+venv/
