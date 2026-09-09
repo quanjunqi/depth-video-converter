@@ -69,7 +69,8 @@ def _job_meta(job: dict) -> dict:
     keep = ("id", "status", "progress", "current", "total", "model", "fps",
             "input_name", "created_at", "updated_at", "error", "info",
             "output_path", "log_path", "preview_path", "last_preview",
-            "stage", "input_path", "pose_enabled", "pose_output", "pose_info")
+            "stage", "input_path", "pose_enabled", "pose_output", "pose_info",
+            "fused_output", "fused_info")
     return {k: job.get(k) for k in keep if k in job}
 
 
@@ -164,12 +165,90 @@ def _contrast_factor(c: int) -> float:
     return (259 * (c + 255)) / (255 * (259 - c))
 
 
+def _compute_global_depth_range(npz_dir: str) -> tuple[float, float]:
+    """遍历全部深度 NPZ，统计全局 1%/99% 分位数（跨帧一致归一化用）。
+
+    为控制内存，每帧降采样到最长边 64 后合并统计。
+    """
+    files = sorted(glob.glob(os.path.join(npz_dir, "depth_*.npz")))
+    if not files:
+        return 0.0, 1.0
+    samples = []
+    for fp in files:
+        d = np.load(fp)["depth"].astype(np.float32)
+        h, w = d.shape
+        scale = max(1, max(h, w) // 64)
+        samples.append(d[::scale, ::scale].ravel())
+    arr = np.concatenate(samples)
+    lo = float(np.percentile(arr, 1))
+    hi = float(np.percentile(arr, 99))
+    if hi - lo < 1e-6:
+        hi = lo + 1.0
+    return lo, hi
+
+
+def _person_bbox_mask(keypoints: np.ndarray, h: int, w: int, pad: int = 24) -> np.ndarray:
+    """从姿态关键点生成人物区域 mask（多人并集，bbox 外扩 pad 像素）。"""
+    mask = np.zeros((h, w), dtype=bool)
+    if keypoints is None or len(keypoints) == 0:
+        return mask
+    for person in keypoints:
+        vis = person[:, 2] >= 0.3
+        if not vis.any():
+            continue
+        xs = person[vis, 0]
+        ys = person[vis, 1]
+        x1 = max(0, int(xs.min()) - pad)
+        x2 = min(w, int(xs.max()) + pad)
+        y1 = max(0, int(ys.min()) - pad)
+        y2 = min(h, int(ys.max()) + pad)
+        mask[y1:y2, x1:x2] = True
+    return mask
+
+
+def _temporal_smooth_depths(npz_dir: str, alpha: float,
+                            pose_dir: str | None = None,
+                            bg_alpha_factor: float = 0.3) -> list[np.ndarray]:
+    """对深度序列做时序 EMA 平滑，返回平滑后的深度列表（float32，与输入同序）。
+
+    alpha: 人物区域平滑系数（0-1，越大越不平滑，1=关闭）
+    pose_dir: 若提供且存在姿态 NPZ，背景区域使用 alpha*bg_alpha_factor（更强平滑）
+    """
+    files = sorted(glob.glob(os.path.join(npz_dir, "depth_*.npz")))
+    if not files:
+        return []
+    pose_files = sorted(glob.glob(os.path.join(pose_dir, "pose_*.npz"))) if pose_dir else []
+    depths = [np.load(fp)["depth"].astype(np.float32) for fp in files]
+
+    smoothed = []
+    prev = None
+    for i, d in enumerate(depths):
+        h, w = d.shape
+        if prev is None:
+            prev = d.copy()
+        if pose_files and i < len(pose_files):
+            kpts = np.load(pose_files[i])["keypoints"]
+            person_mask = _person_bbox_mask(kpts, h, w)
+        else:
+            person_mask = np.zeros((h, w), dtype=bool)
+        fg_alpha = max(0.0, min(1.0, alpha))
+        bg_alpha = max(0.0, min(1.0, alpha * bg_alpha_factor))
+        fg = fg_alpha * d + (1.0 - fg_alpha) * prev
+        bg = bg_alpha * d + (1.0 - bg_alpha) * prev
+        cur = np.where(person_mask, fg, bg)
+        smoothed.append(cur)
+        prev = cur
+    return smoothed
+
+
 def render_depth_video(npz_dir: str, src_video: str, out_path: str,
-                       params: dict) -> dict:
+                       params: dict, pose_dir: str | None = None) -> dict:
     """按参数渲染灰度深度视频（ffmpeg 管道编码 H.264，避免 macOS cv2 mp4 写入失败）。
 
     params: invert / contrast / brightness / scale / fps / per_frame
+            global_norm / temporal_smooth / mocap_enhance / bg_stabilize
     深度语义与 da3_video 一致：小值=近、大值=远；默认"近亮远暗"。
+    pose_dir: 提供姿态 NPZ 目录时，bg_stabilize 和 mocap_enhance 才生效。
     """
     files = sorted(glob.glob(os.path.join(npz_dir, "depth_*.npz")))
     if not files:
@@ -196,17 +275,30 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
     contrast = int(params.get("contrast") or 0)
     brightness = int(params.get("brightness") or 0)
     per_frame = bool(params.get("per_frame", True))
+    global_norm = bool(params.get("global_norm", False))
+    temporal_smooth = float(params.get("temporal_smooth") or 0)
+    mocap_enhance = bool(params.get("mocap_enhance", False))
+    bg_stabilize = bool(params.get("bg_stabilize", False))
     cf = _contrast_factor(contrast)
 
-    # 稳定模式：全片 1%/99% 分位数（一次性），抑制帧间闪烁
-    if not per_frame and files:
-        all_d = []
-        for fp in files[: min(len(files), 60)]:
-            all_d.append(np.load(fp)["depth"].ravel())
-        arr = np.concatenate(all_d)
-        lo, hi = float(np.percentile(arr, 1)), float(np.percentile(arr, 99))
+    # 全局归一化：global_norm 显式开启，或 per_frame=False 时使用全片分位数
+    use_global = global_norm or (not per_frame)
+    if use_global:
+        lo, hi = _compute_global_depth_range(npz_dir)
     else:
         lo = hi = None
+
+    # 时序 EMA 平滑（>0 时生效；bg_stabilize 需要姿态目录）
+    smoothed = None
+    if temporal_smooth > 0:
+        smooth_pose = pose_dir if (bg_stabilize and pose_dir) else None
+        smoothed = _temporal_smooth_depths(npz_dir, temporal_smooth, smooth_pose)
+
+    # 预加载姿态数据（mocap_enhance 用）
+    pose_kpts_list = None
+    if mocap_enhance and pose_dir:
+        pose_files = sorted(glob.glob(os.path.join(pose_dir, "pose_*.npz")))
+        pose_kpts_list = [np.load(pf)["keypoints"] for pf in pose_files]
 
     cmd = ["ffmpeg", "-y", "-loglevel", "error",
            "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{ow}x{oh}",
@@ -215,13 +307,25 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
            "-pix_fmt", "yuv420p", "-movflags", "+faststart", out_path]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     try:
-        for fp in files:
-            d = np.load(fp)["depth"].astype(np.float32)
-            if per_frame:
+        for idx, fp in enumerate(files):
+            d = smoothed[idx] if smoothed is not None else np.load(fp)["depth"].astype(np.float32)
+            if not use_global:
                 lo, hi = float(np.min(d)), float(np.max(d))
             span = max(hi - lo, 1e-6)
             norm = np.clip((d - lo) / span, 0.0, 1.0)
             gray = (norm * 255.0 if invert else (1.0 - norm) * 255.0)
+
+            # 人物区域深度增强：bbox 内局部对比度拉伸，突出动作层次
+            if mocap_enhance and pose_kpts_list is not None and idx < len(pose_kpts_list):
+                kpts = pose_kpts_list[idx]
+                mask = _person_bbox_mask(kpts, src_h, src_w)
+                if mask.any():
+                    fg = gray[mask].astype(np.float32)
+                    fg_lo, fg_hi = float(fg.min()), float(fg.max())
+                    if fg_hi - fg_lo > 1:
+                        fg_stretched = np.clip((fg - fg_lo) / (fg_hi - fg_lo) * 255.0, 0, 255)
+                        gray[mask] = fg_stretched.astype(np.uint8)
+
             gray = cv2.resize(gray, (ow, oh), interpolation=cv2.INTER_CUBIC)
             if contrast != 0 or brightness != 0:
                 gf = gray.astype(np.float32)
@@ -285,6 +389,71 @@ def render_pose_video(npz_dir: str, src_video: str, out_path: str,
     if rc != 0 or not os.path.isfile(out_path) or os.path.getsize(out_path) < 1000:
         raise RuntimeError(f"ffmpeg 骨架渲染失败 (rc={rc})")
     return {"frames": len(files), "fps": fps, "size": f"{ow}x{oh}"}
+
+
+def render_fused_video(depth_dir: str, pose_dir: str, src_video: str,
+                       out_path: str, params: dict) -> dict:
+    """深度+骨架融合视频：灰度深度底图叠加彩色骨架（动作捕捉参考用）。
+
+    深度用全局归一化保证跨帧一致；骨架非黑像素直接覆盖到底图上。
+    """
+    import yolo_pose as yp
+
+    depth_files = sorted(glob.glob(os.path.join(depth_dir, "depth_*.npz")))
+    pose_files = sorted(glob.glob(os.path.join(pose_dir, "pose_*.npz")))
+    if not depth_files:
+        raise RuntimeError("未找到深度 NPZ 输出")
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("未找到 ffmpeg，无法渲染融合视频")
+    cap = cv2.VideoCapture(src_video)
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    fps = float(params.get("fps") or 0) or 25.0
+    scale = params.get("scale") or "1"
+    if str(scale) == "min640":
+        k = max(1.0, 640.0 / max(1, min(src_w, src_h)))
+        ow = max(640, int(round(src_w * k)))
+        oh = max(640, int(round(src_h * k)))
+    else:
+        s = float(scale or 1.0)
+        ow = max(1, int(round(src_w * s)))
+        oh = max(1, int(round(src_h * s)))
+    ow -= ow % 2
+    oh -= oh % 2
+    invert = bool(params.get("invert"))
+
+    # 融合视频固定使用全局归一化（动作参考要求跨帧深度一致）
+    lo, hi = _compute_global_depth_range(depth_dir)
+
+    cmd = ["ffmpeg", "-y", "-loglevel", "error",
+           "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{ow}x{oh}",
+           "-r", str(fps), "-i", "-", "-an",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+           "-pix_fmt", "yuv420p", "-movflags", "+faststart", out_path]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    try:
+        for idx, dfp in enumerate(depth_files):
+            d = np.load(dfp)["depth"].astype(np.float32)
+            span = max(hi - lo, 1e-6)
+            norm = np.clip((d - lo) / span, 0.0, 1.0)
+            gray = (norm * 255.0 if invert else (1.0 - norm) * 255.0).astype(np.uint8)
+            frame = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+            if idx < len(pose_files):
+                kpts = np.load(pose_files[idx])["keypoints"]
+                skeleton = yp.draw_skeleton(kpts, src_h, src_w)
+                mask = np.any(skeleton > 0, axis=2)
+                frame[mask] = skeleton[mask]
+
+            frame = cv2.resize(frame, (ow, oh), interpolation=cv2.INTER_CUBIC)
+            proc.stdin.write(frame.astype(np.uint8).tobytes())
+    finally:
+        proc.stdin.close()
+    rc = proc.wait()
+    if rc != 0 or not os.path.isfile(out_path) or os.path.getsize(out_path) < 1000:
+        raise RuntimeError(f"ffmpeg 融合渲染失败 (rc={rc})")
+    return {"frames": len(depth_files), "fps": fps, "size": f"{ow}x{oh}"}
 
 
 def _mux_audio(video_path: str, src_video: str) -> bool:
@@ -446,7 +615,8 @@ def _run(job: dict, p: dict) -> None:
         job["progress"] = 0.92
         job["updated_at"] = time.time()
         _save_jobs()
-        info = render_depth_video(npz_dir, in_path, job["output_path"], p)
+        info = render_depth_video(npz_dir, in_path, job["output_path"], p,
+                                  pose_dir=npz_dir if pose_enabled else None)
         if p.get("keep_audio"):
             ok = _mux_audio(job["output_path"], in_path)
             log(f"保留原声: {'成功' if ok else '失败/源视频无音轨或缺少 ffmpeg'}")
@@ -457,6 +627,13 @@ def _run(job: dict, p: dict) -> None:
             job["pose_output"] = pose_out
             job["pose_info"] = pose_info
             log(f"骨架视频完成: {pose_out} ({pose_info['frames']}帧 {pose_info['size']})")
+            # 深度动作捕捉：额外输出深度+骨架融合视频
+            if p.get("fused_output"):
+                fused_out = os.path.join(OUTPUT_DIR, job["id"] + "_fused.mp4")
+                fused_info = render_fused_video(npz_dir, npz_dir, in_path, fused_out, p)
+                job["fused_output"] = fused_out
+                job["fused_info"] = fused_info
+                log(f"融合视频完成: {fused_out} ({fused_info['frames']}帧 {fused_info['size']})")
         job["progress"] = 1.0
         job["info"] = info
         job["status"] = "done"
@@ -552,7 +729,25 @@ def convert():
         "keep_audio": _b("keep_audio", "false") == "true",
         "per_frame": _b("per_frame", "true") == "true",
         "pose_enabled": _b("pose_enabled", "false") == "true",
+        # 深度动作捕捉新参数（全部可选，默认关闭，向后兼容）
+        "temporal_smooth": float(_b("temporal_smooth", "0") or 0),
+        "global_norm": _b("global_norm", "false") == "true",
+        "bg_stabilize": _b("bg_stabilize", "false") == "true",
+        "mocap_enhance": _b("mocap_enhance", "false") == "true",
+        "fused_output": _b("fused_output", "false") == "true",
+        "mocap_mode": _b("mocap_mode", "false") == "true",
     }
+    # mocap_mode 预设：一键开启深度动作捕捉的推荐参数组合
+    if params["mocap_mode"]:
+        params.update({
+            "temporal_smooth": 0.7,
+            "global_norm": True,
+            "bg_stabilize": True,
+            "mocap_enhance": True,
+            "fused_output": True,
+            "pose_enabled": True,
+            "per_frame": False,
+        })
     if not params["fps"]:
         # 自动：保持原视频帧率，避免输出时长变化
         cap = cv2.VideoCapture(in_path)
@@ -770,6 +965,12 @@ def download(jid: str):
             return jsonify({"error": "骨架视频不存在"}), 404
         return send_file(pose_path, as_attachment=True,
                          download_name=f"{stem}_pose.mp4")
+    if dtype == "fused":
+        fused_path = job.get("fused_output")
+        if not fused_path or not os.path.isfile(fused_path):
+            return jsonify({"error": "融合视频不存在"}), 404
+        return send_file(fused_path, as_attachment=True,
+                         download_name=f"{stem}_fused.mp4")
     if not os.path.isfile(job["output_path"]):
         return jsonify({"error": "结果不存在"}), 404
     return send_file(job["output_path"], as_attachment=True,
