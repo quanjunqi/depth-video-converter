@@ -43,10 +43,11 @@ LOG_DIR = os.path.join(HERE, "logs")
 DEPTH_DIR = os.path.join(HERE, "depth_tmp")
 PREVIEW_DIR = os.path.join(HERE, "preview")
 CLIPS_DIR = os.path.join(HERE, "clips")
+AUDIO_OUTPUT_DIR = os.path.join(HERE, "audio_output")
 JOBS_FILE = os.path.join(HERE, "jobs.json")
 MAX_ACTIVE_JOBS = 2   # 最多同时运行的任务数
 STATIC_DIR = os.path.join(HERE, "app")
-for d in (UPLOAD_DIR, OUTPUT_DIR, LOG_DIR, DEPTH_DIR, PREVIEW_DIR, CLIPS_DIR):
+for d in (UPLOAD_DIR, OUTPUT_DIR, LOG_DIR, DEPTH_DIR, PREVIEW_DIR, CLIPS_DIR, AUDIO_OUTPUT_DIR):
     os.makedirs(d, exist_ok=True)
 
 PORT = int(os.environ.get("PORT", "8765"))
@@ -774,6 +775,89 @@ def download(jid: str):
         return jsonify({"error": "结果不存在"}), 404
     return send_file(job["output_path"], as_attachment=True,
                      download_name=f"{stem}_depth.mp4")
+
+
+# ============================================================
+# 视频音频处理 API（只保留人声 / 只保留环境音 / 无声音）
+# ============================================================
+import audio_processor as ap
+
+
+@app.route("/api/audio-process/status")
+def audio_process_status():
+    """检查 Demucs 可用性"""
+    return jsonify(ap.check_demucs())
+
+
+@app.route("/api/audio-process/upload", methods=["POST"])
+def audio_process_upload():
+    """上传视频"""
+    if "video" not in request.files:
+        return jsonify({"error": "未找到视频文件"}), 400
+    f = request.files["video"]
+    if not f.filename:
+        return jsonify({"error": "文件名为空"}), 400
+    safe_name = os.path.basename(f.filename)
+    save_path = os.path.join(UPLOAD_DIR, safe_name)
+    f.save(save_path)
+    return jsonify({"filename": safe_name, "path": save_path})
+
+
+@app.route("/api/audio-process/start", methods=["POST"])
+def audio_process_start():
+    """开始音频处理"""
+    data = request.get_json(force=True)
+    video_path = data.get("video_path", "")
+    mode = data.get("mode", "mute")  # vocals_only | ambient_only | mute
+    model = data.get("model", "htdemucs")
+
+    if not video_path or not os.path.exists(video_path):
+        # 尝试用 filename
+        filename = data.get("filename", "")
+        if filename:
+            video_path = os.path.join(UPLOAD_DIR, os.path.basename(filename))
+        if not os.path.exists(video_path):
+            return jsonify({"error": "视频文件不存在"}), 400
+
+    if mode not in ("vocals_only", "ambient_only", "mute"):
+        return jsonify({"error": "无效的处理模式"}), 400
+
+    task_id = ap.create_task(video_path, mode, AUDIO_OUTPUT_DIR, model)
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/api/audio-process/task/<task_id>")
+def audio_process_task(task_id):
+    """查询任务状态"""
+    task = ap.get_task(task_id)
+    if not task:
+        return jsonify({"error": "任务不存在"}), 404
+    return jsonify(task)
+
+
+@app.route("/api/audio-process/download/<task_id>")
+def audio_process_download(task_id):
+    """下载处理结果"""
+    task = ap.get_task(task_id)
+    if not task or task["status"] != "done":
+        return jsonify({"error": "任务未完成"}), 404
+    out_path = task["result"].get("output_path", "")
+    if not out_path or not os.path.exists(out_path):
+        return jsonify({"error": "结果文件不存在"}), 404
+    return send_file(out_path, as_attachment=True, download_name=os.path.basename(out_path))
+
+
+@app.route("/api/audio-process/download-stem/<task_id>/<stem>")
+def audio_process_download_stem(task_id, stem):
+    """下载分离的音轨（vocals / ambient）"""
+    task = ap.get_task(task_id)
+    if not task or task["status"] != "done":
+        return jsonify({"error": "任务未完成"}), 404
+    key = "vocals_path" if stem == "vocals" else "ambient_path"
+    path = task["result"].get(key, "")
+    if not path or not os.path.exists(path):
+        return jsonify({"error": "音轨不存在"}), 404
+    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 
 def _warmup_default_model() -> None:

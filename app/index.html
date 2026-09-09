@@ -35,6 +35,10 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
                         视频裁剪
                     </button>
+                    <button class="badge badge-btn" id="audio-nav-btn" title="视频音频处理">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                        音频处理
+                    </button>
                     <button class="badge badge-btn" id="tasks-nav-btn" title="查看历史与进行中的任务">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
                         任务记录
@@ -294,6 +298,91 @@
                         <div><span class="clip-meta-label">分段数量：</span><span id="clip-result-count"></span></div>
                     </div>
                     <div class="clip-segment-list" id="clip-segment-list"></div>
+                </div>
+            </section>
+
+            <!-- 视频音频处理 -->
+            <section id="audio-section" class="section">
+                <div class="section-header">
+                    <h2>视频音频处理</h2>
+                    <p>只保留人声 · 只保留环境音 · 无声音</p>
+                </div>
+
+                <div class="audio-workspace">
+                    <!-- 上传区 -->
+                    <div class="audio-upload-area" id="audio-upload-area">
+                        <div class="audio-upload-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        </div>
+                        <p>拖放视频到此处，或<span class="link" id="audio-upload-link">点击选择文件</span></p>
+                        <input type="file" id="audio-file-input" accept="video/*" hidden>
+                    </div>
+
+                    <!-- 处理区 -->
+                    <div class="audio-process-area" id="audio-process-area" style="display:none;">
+                        <div class="audio-video-info">
+                            <video id="audio-player" class="audio-preview-video" controls></video>
+                            <div class="audio-info-text">
+                                <div class="audio-filename" id="audio-filename">—</div>
+                                <div class="audio-meta" id="audio-meta">—</div>
+                            </div>
+                        </div>
+
+                        <div class="audio-mode-selector">
+                            <div class="audio-mode-title">选择处理模式</div>
+                            <div class="audio-mode-cards">
+                                <div class="audio-mode-card active" data-mode="vocals_only">
+                                    <div class="mode-icon">
+                                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                                    </div>
+                                    <div class="mode-name">只保留人声</div>
+                                    <div class="mode-desc">去除背景音乐和环境音，保留说话人声</div>
+                                </div>
+                                <div class="audio-mode-card" data-mode="ambient_only">
+                                    <div class="mode-icon">
+                                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12h2l2-7 4 14 3-10 2 5h7"/></svg>
+                                    </div>
+                                    <div class="mode-name">只保留环境音</div>
+                                    <div class="mode-desc">去除人声，保留背景音乐和环境音效</div>
+                                </div>
+                                <div class="audio-mode-card" data-mode="mute">
+                                    <div class="mode-icon">
+                                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                                    </div>
+                                    <div class="mode-name">无声音</div>
+                                    <div class="mode-desc">完全去除音轨，生成静音视频</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="audio-model-row" id="audio-model-row">
+                            <label>分离模型</label>
+                            <select id="audio-model-select" class="input-sm">
+                                <option value="htdemucs">Demucs v4 (htdemucs) - 质量优先</option>
+                            </select>
+                            <span class="audio-demucs-status" id="audio-demucs-status">检测中...</span>
+                        </div>
+
+                        <button class="btn btn-primary btn-lg" id="audio-start-btn">开始处理</button>
+
+                        <!-- 进度 -->
+                        <div class="audio-progress" id="audio-progress" style="display:none;">
+                            <div class="progress-bar-wrap">
+                                <div class="progress-bar" id="audio-progress-bar"></div>
+                            </div>
+                            <span id="audio-progress-text">0%</span>
+                            <span id="audio-progress-msg"></span>
+                        </div>
+
+                        <!-- 结果 -->
+                        <div class="audio-result" id="audio-result" style="display:none;">
+                            <div class="result-head">
+                                <h3>处理完成</h3>
+                                <button class="btn btn-secondary btn-sm" id="audio-reset-btn">重新处理</button>
+                            </div>
+                            <div id="audio-result-content"></div>
+                        </div>
+                    </div>
                 </div>
             </section>
 

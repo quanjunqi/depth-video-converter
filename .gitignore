@@ -35,3 +35,4 @@ Thumbs.db
 .env
 .venv/
 venv/
+audio_output/
