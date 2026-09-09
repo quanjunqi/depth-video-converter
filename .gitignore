@@ -36,3 +36,4 @@ Thumbs.db
 .venv/
 venv/
 audio_output/
+editor_output/
