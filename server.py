@@ -201,6 +201,10 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
     depth_clip = float(params.get("depth_clip") or 0)  # 百分位截断，0=关闭
     clahe_clip = float(params.get("clahe_clip") or 0)  # CLAHE对比度限制，0=关闭
     clahe_tile = int(params.get("clahe_tile") or 8)    # CLAHE块大小
+    sharpen = float(params.get("sharpen") or 0)        # 边缘锐化强度，0=关闭
+    sharpen_radius = float(params.get("sharpen_radius") or 2.0)  # 锐化模糊半径
+    local_norm = float(params.get("local_norm") or 0)  # 局部归一化强度，0=关闭
+    local_norm_radius = int(params.get("local_norm_radius") or 15)  # 局部窗口半径
     cf = _contrast_factor(contrast)
 
     # CLAHE 对象（仅在开启时创建）
@@ -249,6 +253,19 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
             # CLAHE 局部对比度增强（增强人物内部深度差异）
             if clahe is not None:
                 gray = clahe.apply(gray)
+            # Unsharp Mask 边缘锐化（增强人物轮廓，无块状伪影）
+            if sharpen > 0:
+                blur = cv2.GaussianBlur(gray, (0, 0), sigmaX=sharpen_radius)
+                gray = cv2.addWeighted(gray, 1.0 + sharpen, blur, -sharpen, 0)
+            # 局部深度归一化（解决肢体重叠时深度接近无法区分的问题）
+            if local_norm > 0:
+                k = max(3, local_norm_radius * 2 + 1)
+                kernel = np.ones((k, k), np.uint8)
+                local_min = cv2.erode(gray, kernel)
+                local_max = cv2.dilate(gray, kernel)
+                span = np.maximum(local_max.astype(np.float32) - local_min.astype(np.float32), 1.0)
+                local_normed = ((gray.astype(np.float32) - local_min.astype(np.float32)) / span * 255.0)
+                gray = cv2.addWeighted(gray, 1.0 - local_norm, local_normed.astype(np.uint8), local_norm, 0)
             proc.stdin.write(gray.tobytes())
     finally:
         proc.stdin.close()
@@ -577,6 +594,10 @@ def convert():
         "depth_clip": float(_b("depth_clip", "0")),     # 百分位截断，0=关闭
         "clahe_clip": float(_b("clahe_clip", "0")),      # CLAHE对比度限制，0=关闭
         "clahe_tile": int(_b("clahe_tile", "8")),         # CLAHE块大小
+        "sharpen": float(_b("sharpen", "0")),             # 边缘锐化强度，0=关闭
+        "sharpen_radius": float(_b("sharpen_radius", "2")),  # 锐化模糊半径
+        "local_norm": float(_b("local_norm", "0")),       # 局部归一化强度，0=关闭
+        "local_norm_radius": int(_b("local_norm_radius", "15")),  # 局部窗口半径
     }
     if not params["fps"]:
         # 自动：保持原视频帧率，避免输出时长变化

@@ -206,6 +206,42 @@
 
                             <div class="setting-group">
                                 <label class="setting-label">
+                                    <span>边缘锐化</span>
+                                    <span class="setting-desc">Unsharp Mask 增强人物轮廓和肢体边缘（0=关闭，推荐1-3）</span>
+                                    <span class="setting-value" id="sharpen-value">0</span>
+                                </label>
+                                <input type="range" id="sharpen-slider" min="0" max="5" step="0.5" value="0" class="slider">
+                            </div>
+
+                            <div class="setting-group" id="sharpen-radius-group" style="display:none;">
+                                <label class="setting-label">
+                                    <span>锐化半径</span>
+                                    <span class="setting-desc">锐化的模糊半径，越大边缘越宽</span>
+                                    <span class="setting-value" id="sharpen-radius-value">2</span>
+                                </label>
+                                <input type="range" id="sharpen-radius-slider" min="1" max="5" step="0.5" value="2" class="slider">
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
+                                    <span>局部深度归一化</span>
+                                    <span class="setting-desc">邻域内单独拉伸对比度，解决肢体重叠时深度接近无法区分（0=关闭，推荐0.5-0.8）</span>
+                                    <span class="setting-value" id="local-norm-value">0</span>
+                                </label>
+                                <input type="range" id="local-norm-slider" min="0" max="1" step="0.1" value="0" class="slider">
+                            </div>
+
+                            <div class="setting-group" id="local-norm-radius-group" style="display:none;">
+                                <label class="setting-label">
+                                    <span>局部窗口半径</span>
+                                    <span class="setting-desc">邻域窗口大小，越小增强越精细</span>
+                                    <span class="setting-value" id="local-norm-radius-value">15</span>
+                                </label>
+                                <input type="range" id="local-norm-radius-slider" min="5" max="30" step="1" value="15" class="slider">
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">
                                     <span>输出帧率</span>
                                     <span class="setting-desc">帧率越高越流畅，处理时间越长</span>
                                 </label>

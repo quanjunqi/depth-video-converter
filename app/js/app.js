@@ -57,6 +57,10 @@ const state = {
         depthClip: 0,
         claheClip: 0,
         claheTile: 8,
+        sharpen: 0,
+        sharpenRadius: 2,
+        localNorm: 0,
+        localNormRadius: 15,
     },
     processing: {
         startTime: 0,
@@ -1772,6 +1776,10 @@ async function startDa3Processing() {
         form.append('depth_clip', String(state.settings.depthClip || 0));
         form.append('clahe_clip', String(state.settings.claheClip || 0));
         form.append('clahe_tile', String(state.settings.claheTile || 8));
+        form.append('sharpen', String(state.settings.sharpen || 0));
+        form.append('sharpen_radius', String(state.settings.sharpenRadius || 2));
+        form.append('local_norm', String(state.settings.localNorm || 0));
+        form.append('local_norm_radius', String(state.settings.localNormRadius || 15));
 
         const resp = await fetch(`${DA3_SERVER}/api/convert`, { method: 'POST', body: form });
         const data = await resp.json();
@@ -2585,6 +2593,36 @@ function bindEvents() {
         saveSettings();
     });
 
+    // 边缘锐化
+    $('sharpen-slider').addEventListener('input', (e) => {
+        state.settings.sharpen = parseFloat(e.target.value);
+        $('sharpen-value').textContent = e.target.value;
+        $('sharpen-radius-group').style.display = parseFloat(e.target.value) > 0 ? '' : 'none';
+        saveSettings();
+    });
+
+    // 锐化半径
+    $('sharpen-radius-slider').addEventListener('input', (e) => {
+        state.settings.sharpenRadius = parseFloat(e.target.value);
+        $('sharpen-radius-value').textContent = e.target.value;
+        saveSettings();
+    });
+
+    // 局部深度归一化
+    $('local-norm-slider').addEventListener('input', (e) => {
+        state.settings.localNorm = parseFloat(e.target.value);
+        $('local-norm-value').textContent = e.target.value;
+        $('local-norm-radius-group').style.display = parseFloat(e.target.value) > 0 ? '' : 'none';
+        saveSettings();
+    });
+
+    // 局部窗口半径
+    $('local-norm-radius-slider').addEventListener('input', (e) => {
+        state.settings.localNormRadius = parseInt(e.target.value);
+        $('local-norm-radius-value').textContent = e.target.value;
+        saveSettings();
+    });
+
     // FPS toggle
     $('fps-group').addEventListener('click', (e) => {
         const btn = e.target.closest('.toggle-btn');
@@ -2834,6 +2872,10 @@ async function restoreSession() {
         if (saved.depthClip != null) { $('depth-clip-slider').value = saved.depthClip; $('depth-clip-value').textContent = saved.depthClip; }
         if (saved.claheClip != null) { $('clahe-clip-slider').value = saved.claheClip; $('clahe-clip-value').textContent = saved.claheClip; $('clahe-tile-group').style.display = parseFloat(saved.claheClip) > 0 ? '' : 'none'; }
         if (saved.claheTile != null) { $('clahe-tile-slider').value = saved.claheTile; $('clahe-tile-value').textContent = saved.claheTile; }
+        if (saved.sharpen != null) { $('sharpen-slider').value = saved.sharpen; $('sharpen-value').textContent = saved.sharpen; $('sharpen-radius-group').style.display = parseFloat(saved.sharpen) > 0 ? '' : 'none'; }
+        if (saved.sharpenRadius != null) { $('sharpen-radius-slider').value = saved.sharpenRadius; $('sharpen-radius-value').textContent = saved.sharpenRadius; }
+        if (saved.localNorm != null) { $('local-norm-slider').value = saved.localNorm; $('local-norm-value').textContent = saved.localNorm; $('local-norm-radius-group').style.display = parseFloat(saved.localNorm) > 0 ? '' : 'none'; }
+        if (saved.localNormRadius != null) { $('local-norm-radius-slider').value = saved.localNormRadius; $('local-norm-radius-value').textContent = saved.localNormRadius; }
         $('fps-group').querySelectorAll('.toggle-btn').forEach(b =>
             b.classList.toggle('active', parseInt(b.dataset.fps) === (saved.fps || 0)));
         $('resolution-group').querySelectorAll('.toggle-btn').forEach(b =>
