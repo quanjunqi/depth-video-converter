@@ -241,9 +241,9 @@ def render_pose_video(npz_dir: str, src_video: str, out_path: str,
                        params: dict) -> dict:
     """渲染纯骨架视频（ffmpeg 管道编码，参数与深度视频完全一致：fps/分辨率/编码器）。
 
-    读 pose_*.npz（keypoints + num_persons），用 yolo_pose.draw_skeleton 绘制黑底白骨架。
+    读 pose_*.npz（keypoints + num_persons），用 openpose_client.draw_skeleton 绘制黑底彩色骨架。
     """
-    import yolo_pose as yp
+    import openpose_client as opc
 
     files = sorted(glob.glob(os.path.join(npz_dir, "pose_*.npz")))
     if not files:
@@ -277,7 +277,7 @@ def render_pose_video(npz_dir: str, src_video: str, out_path: str,
         for fp in files:
             data = np.load(fp)
             kpts = data["keypoints"]
-            skeleton = yp.draw_skeleton(kpts, src_h, src_w)
+            skeleton = opc.draw_skeleton(kpts, src_h, src_w)
             skeleton = cv2.resize(skeleton, (ow, oh), interpolation=cv2.INTER_CUBIC)
             proc.stdin.write(skeleton.astype(np.uint8).tobytes())
     finally:
@@ -355,9 +355,12 @@ def _run(job: dict, p: dict) -> None:
         model = p.get("model", "da3-small")
         window, overlap = (1, 0) if p.get("frame_wise") else (8, 2)
         pose_enabled = bool(p.get("pose_enabled", False))
-        yp = None
+        opc = None
         if pose_enabled:
-            import yolo_pose as yp
+            import openpose_client as opc
+            if not opc.check_server():
+                log("[警告] OpenPose 服务不可用，骨架输出将为空")
+                pose_enabled = False
         os.makedirs(npz_dir, exist_ok=True)
 
         log(f"引擎: {os.path.abspath(dv.__file__)}")
@@ -415,12 +418,12 @@ def _run(job: dict, p: dict) -> None:
                         depth = depths[cur_idx]
                         cur_rgb = frames[cur_idx]
                     np.savez(os.path.join(npz_dir, f"depth_{i:06d}.npz"), depth=depth)
-                    # 姿态估计（同时输出骨架）
-                    if pose_enabled and yp is not None:
-                        kpts = yp.infer_pose(cur_rgb)
-                        yp.save_pose_npz(kpts, os.path.join(npz_dir, f"pose_{i:06d}.npz"))
+                    # 姿态估计（同时输出骨架，通过远程 OpenPose 服务）
+                    if pose_enabled and opc is not None:
+                        kpts = opc.infer_pose(cur_rgb)
+                        opc.save_pose_npz(kpts, os.path.join(npz_dir, f"pose_{i:06d}.npz"))
                         if (i + 1) % 5 == 0 or (i + 1) == total:
-                            pose_frame = yp.draw_skeleton(kpts, src_h, src_w)
+                            pose_frame = opc.draw_skeleton(kpts, src_h, src_w)
                             cv2.imwrite(os.path.join(PREVIEW_DIR, f"{job['id']}_pose.png"), pose_frame)
                     job["current"] = i + 1
                     if (i + 1) % 5 == 0 or (i + 1) == total:
