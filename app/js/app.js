@@ -54,6 +54,9 @@ const state = {
         resolution: 'min640',
         keepAudio: false,
         poseEnabled: false,
+        depthClip: 0,
+        claheClip: 0,
+        claheTile: 8,
     },
     processing: {
         startTime: 0,
@@ -1766,6 +1769,9 @@ async function startDa3Processing() {
         form.append('keep_audio', String(!!state.settings.keepAudio));
         form.append('per_frame', 'true');      // 每帧全范围拉伸
         form.append('pose_enabled', String(!!state.settings.poseEnabled));
+        form.append('depth_clip', String(state.settings.depthClip || 0));
+        form.append('clahe_clip', String(state.settings.claheClip || 0));
+        form.append('clahe_tile', String(state.settings.claheTile || 8));
 
         const resp = await fetch(`${DA3_SERVER}/api/convert`, { method: 'POST', body: form });
         const data = await resp.json();
@@ -2556,6 +2562,29 @@ function bindEvents() {
         saveSettings();
     });
 
+    // 深度百分位截断
+    $('depth-clip-slider').addEventListener('input', (e) => {
+        state.settings.depthClip = parseFloat(e.target.value);
+        $('depth-clip-value').textContent = e.target.value;
+        saveSettings();
+    });
+
+    // CLAHE 局部增强
+    $('clahe-clip-slider').addEventListener('input', (e) => {
+        state.settings.claheClip = parseFloat(e.target.value);
+        $('clahe-clip-value').textContent = e.target.value;
+        // CLAHE 开启时显示块大小设置
+        $('clahe-tile-group').style.display = parseFloat(e.target.value) > 0 ? '' : 'none';
+        saveSettings();
+    });
+
+    // CLAHE 块大小
+    $('clahe-tile-slider').addEventListener('input', (e) => {
+        state.settings.claheTile = parseInt(e.target.value);
+        $('clahe-tile-value').textContent = e.target.value;
+        saveSettings();
+    });
+
     // FPS toggle
     $('fps-group').addEventListener('click', (e) => {
         const btn = e.target.closest('.toggle-btn');
@@ -2802,6 +2831,9 @@ async function restoreSession() {
             b.classList.toggle('active', b.dataset.invert === String(inv)));
         if (saved.contrast != null) { $('contrast-slider').value = saved.contrast; $('contrast-value').textContent = saved.contrast; }
         if (saved.brightness != null) { $('brightness-slider').value = saved.brightness; $('brightness-value').textContent = saved.brightness; }
+        if (saved.depthClip != null) { $('depth-clip-slider').value = saved.depthClip; $('depth-clip-value').textContent = saved.depthClip; }
+        if (saved.claheClip != null) { $('clahe-clip-slider').value = saved.claheClip; $('clahe-clip-value').textContent = saved.claheClip; $('clahe-tile-group').style.display = parseFloat(saved.claheClip) > 0 ? '' : 'none'; }
+        if (saved.claheTile != null) { $('clahe-tile-slider').value = saved.claheTile; $('clahe-tile-value').textContent = saved.claheTile; }
         $('fps-group').querySelectorAll('.toggle-btn').forEach(b =>
             b.classList.toggle('active', parseInt(b.dataset.fps) === (saved.fps || 0)));
         $('resolution-group').querySelectorAll('.toggle-btn').forEach(b =>

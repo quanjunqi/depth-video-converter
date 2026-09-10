@@ -170,6 +170,7 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
     """按参数渲染灰度深度视频（ffmpeg 管道编码 H.264，避免 macOS cv2 mp4 写入失败）。
 
     params: invert / contrast / brightness / scale / fps / per_frame
+            depth_clip（百分位截断，0=关闭）/ clahe_clip（CLAHE对比度限制，0=关闭）/ clahe_tile（CLAHE块大小）
     深度语义与 da3_video 一致：小值=近、大值=远；默认"近亮远暗"。
     """
     files = sorted(glob.glob(os.path.join(npz_dir, "depth_*.npz")))
@@ -197,7 +198,16 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
     contrast = int(params.get("contrast") or 0)
     brightness = int(params.get("brightness") or 0)
     per_frame = bool(params.get("per_frame", True))
+    depth_clip = float(params.get("depth_clip") or 0)  # 百分位截断，0=关闭
+    clahe_clip = float(params.get("clahe_clip") or 0)  # CLAHE对比度限制，0=关闭
+    clahe_tile = int(params.get("clahe_tile") or 8)    # CLAHE块大小
     cf = _contrast_factor(contrast)
+
+    # CLAHE 对象（仅在开启时创建）
+    clahe = None
+    if clahe_clip > 0:
+        tile = max(2, min(32, clahe_tile))
+        clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=(tile, tile))
 
     # 稳定模式：全片 1%/99% 分位数（一次性），抑制帧间闪烁
     if not per_frame and files:
@@ -219,7 +229,13 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
         for fp in files:
             d = np.load(fp)["depth"].astype(np.float32)
             if per_frame:
-                lo, hi = float(np.min(d)), float(np.max(d))
+                if depth_clip > 0:
+                    # 百分位截断：去掉离群值，让主体占据更多动态范围
+                    cp = min(max(depth_clip, 0.1), 49.0)
+                    lo = float(np.percentile(d, cp))
+                    hi = float(np.percentile(d, 100 - cp))
+                else:
+                    lo, hi = float(np.min(d)), float(np.max(d))
             span = max(hi - lo, 1e-6)
             norm = np.clip((d - lo) / span, 0.0, 1.0)
             gray = (norm * 255.0 if invert else (1.0 - norm) * 255.0)
@@ -228,7 +244,12 @@ def render_depth_video(npz_dir: str, src_video: str, out_path: str,
                 gf = gray.astype(np.float32)
                 gf = cf * (gf - 128.0) + 128.0 + brightness
                 gray = np.clip(gf, 0, 255).astype(np.uint8)
-            proc.stdin.write(gray.astype(np.uint8).tobytes())
+            else:
+                gray = gray.astype(np.uint8)
+            # CLAHE 局部对比度增强（增强人物内部深度差异）
+            if clahe is not None:
+                gray = clahe.apply(gray)
+            proc.stdin.write(gray.tobytes())
     finally:
         proc.stdin.close()
     rc = proc.wait()
@@ -553,6 +574,9 @@ def convert():
         "keep_audio": _b("keep_audio", "false") == "true",
         "per_frame": _b("per_frame", "true") == "true",
         "pose_enabled": _b("pose_enabled", "false") == "true",
+        "depth_clip": float(_b("depth_clip", "0")),     # 百分位截断，0=关闭
+        "clahe_clip": float(_b("clahe_clip", "0")),      # CLAHE对比度限制，0=关闭
+        "clahe_tile": int(_b("clahe_tile", "8")),         # CLAHE块大小
     }
     if not params["fps"]:
         # 自动：保持原视频帧率，避免输出时长变化
