@@ -225,6 +225,17 @@
                                     <button class="toggle-btn" data-pose="only">仅骨架</button>
                                 </div>
                             </div>
+                            <div class="setting-row" id="pose-skip-row" style="display:none;">
+                                <label class="setting-label">
+                                    <span>姿态采样率</span>
+                                    <span class="setting-desc">每隔N帧推理一次，中间帧复用结果。数值越大越快，动作越不流畅</span>
+                                </label>
+                                <div class="toggle-group" id="pose-skip-group">
+                                    <button class="toggle-btn" data-skip="0">每帧</button>
+                                    <button class="toggle-btn active" data-skip="1">每2帧</button>
+                                    <button class="toggle-btn" data-skip="2">每3帧</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="settings-footer">
                             <button class="btn btn-ghost" id="back-to-upload-btn">

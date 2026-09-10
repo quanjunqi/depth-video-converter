@@ -381,6 +381,8 @@ def _run(job: dict, p: dict) -> None:
             job["current"], job["total"] = 0, total
             _save_jobs()
 
+            pose_skip = max(0, int(p.get("pose_skip", 2)))  # 每隔N帧推理一次，0=每帧
+            last_kpts = np.zeros((0, 18, 3), dtype=np.float32)
             for i in range(total):
                 if job.get("stop_requested"):
                     log(f"收到停止指令，中断姿态提取（已处理 {i}/{total} 帧）")
@@ -390,7 +392,12 @@ def _run(job: dict, p: dict) -> None:
                     break
                 rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
                 if opc is not None:
-                    kpts = opc.infer_pose(rgb)
+                    # 跳帧：每隔 pose_skip+1 帧推理一次，中间帧复用
+                    if pose_skip == 0 or i % (pose_skip + 1) == 0:
+                        kpts = opc.infer_pose(rgb)
+                        last_kpts = kpts
+                    else:
+                        kpts = last_kpts
                     opc.save_pose_npz(kpts, os.path.join(npz_dir, f"pose_{i:06d}.npz"))
                     if (i + 1) % 10 == 0 or (i + 1) == total:
                         pose_frame = opc.draw_skeleton(kpts, src_h, src_w)
@@ -638,6 +645,7 @@ def convert():
         "per_frame": _b("per_frame", "true") == "true",
         "pose_enabled": _b("pose_enabled", "false") == "true",
         "pose_only": _b("pose_only", "false") == "true",
+        "pose_skip": int(request.form.get("pose_skip", "2")),
     }
     if not params["fps"]:
         # 自动：保持原视频帧率，避免输出时长变化
@@ -678,7 +686,7 @@ def progress(jid: str):
             with open(job["log_path"], "r", errors="replace") as f:
                 txt = f.read()
             import re
-            m = re.findall(r"推理进度 (\d+)/(\d+)", txt)
+            m = re.findall(r"(?:推理进度|姿态提取) (\d+)/(\d+)", txt)
             if m:
                 done, total = int(m[-1][0]), int(m[-1][1])
                 s["progress"] = round(done / max(total, 1) * 0.9, 3)

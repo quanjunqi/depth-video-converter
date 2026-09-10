@@ -98,14 +98,26 @@ def check_server(server_url: str = DEFAULT_SERVER_URL) -> bool:
 
 
 def infer_pose(rgb_frame: np.ndarray,
-               server_url: str = DEFAULT_SERVER_URL) -> np.ndarray:
+               server_url: str = DEFAULT_SERVER_URL,
+               max_size: int = 512) -> np.ndarray:
     """
     单帧多人姿态推理（通过 HTTP 调用远程 OpenPose 服务）。
     返回: keypoints, shape (N, 18, 3)，N 为人数，3 为 (x, y, confidence)。
     未检测到人或服务不可用时返回 (0, 18, 3) 空数组。
+
+    max_size: 发送前将图片长边缩放到此值（OpenPose 姿态检测对分辨率不敏感，
+              512px 足够，可大幅减少传输和推理时间）。关键点坐标会自动映射回原图。
     """
-    # 编码为 JPEG 传输（压缩率 90，平衡速度和质量）
-    ok, buf = cv2.imencode(".jpg", rgb_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    h, w = rgb_frame.shape[:2]
+    scale = 1.0
+    send_frame = rgb_frame
+    if max_size > 0 and max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        new_w, new_h = int(w * scale), int(h * scale)
+        send_frame = cv2.resize(rgb_frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+    # 编码为 JPEG 传输（压缩率 85，平衡速度和质量）
+    ok, buf = cv2.imencode(".jpg", send_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     if not ok:
         return np.zeros((0, 18, 3), dtype=np.float32)
 
@@ -125,7 +137,8 @@ def infer_pose(rgb_frame: np.ndarray,
     if not people:
         return np.zeros((0, 18, 3), dtype=np.float32)
 
-    # 转换为 (N, 18, 3) 数组
+    # 转换为 (N, 18, 3) 数组，坐标映射回原图分辨率
+    inv_scale = 1.0 / scale if scale != 1.0 else 1.0
     result = []
     for person in people:
         kps = person.get("keypoints", [])
@@ -133,8 +146,8 @@ def infer_pose(rgb_frame: np.ndarray,
             continue
         arr = np.zeros((18, 3), dtype=np.float32)
         for i, kp in enumerate(kps[:18]):
-            arr[i, 0] = kp.get("x", 0)
-            arr[i, 1] = kp.get("y", 0)
+            arr[i, 0] = kp.get("x", 0) * inv_scale
+            arr[i, 1] = kp.get("y", 0) * inv_scale
             arr[i, 2] = kp.get("confidence", 0)
         result.append(arr)
 

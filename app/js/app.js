@@ -55,6 +55,7 @@ const state = {
         keepAudio: false,
         poseEnabled: false,
         poseMode: 'off',  // off / both / only
+        poseSkip: 1,      // 0=每帧, 1=每2帧, 2=每3帧
     },
     processing: {
         startTime: 0,
@@ -1768,6 +1769,8 @@ async function startDa3Processing() {
         form.append('per_frame', 'true');      // 每帧全范围拉伸
         form.append('pose_enabled', String(state.settings.poseMode === 'both' || state.settings.poseMode === 'only'));
         form.append('pose_only', String(state.settings.poseMode === 'only'));
+        form.append('pose_skip', String(state.settings.poseSkip));
+        form.append('pose_skip', String(state.settings.poseSkip));
 
         const resp = await fetch(`${DA3_SERVER}/api/convert`, { method: 'POST', body: form });
         const data = await resp.json();
@@ -2611,6 +2614,21 @@ function bindEvents() {
             btn.classList.add('active');
             state.settings.poseMode = btn.dataset.pose;
             state.settings.poseEnabled = btn.dataset.pose !== 'off';
+            // 仅骨架模式下显示采样率选项
+            const skipRow = $('pose-skip-row');
+            if (skipRow) skipRow.style.display = btn.dataset.pose === 'only' ? '' : 'none';
+            saveSettings();
+        });
+    }
+    // 姿态采样率
+    const poseSkipGroup = $('pose-skip-group');
+    if (poseSkipGroup) {
+        poseSkipGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('.toggle-btn');
+            if (!btn) return;
+            poseSkipGroup.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.settings.poseSkip = parseInt(btn.dataset.skip, 10);
             saveSettings();
         });
     }
@@ -2831,6 +2849,16 @@ async function restoreSession() {
             state.settings.poseEnabled = mode !== 'off';
             poseGroup.querySelectorAll('.toggle-btn').forEach(b =>
                 b.classList.toggle('active', b.dataset.pose === mode));
+            // 仅骨架模式下显示采样率选项
+            const skipRow = $('pose-skip-row');
+            if (skipRow) skipRow.style.display = mode === 'only' ? '' : 'none';
+        }
+        const poseSkipGroup = $('pose-skip-group');
+        if (poseSkipGroup) {
+            const skip = saved.poseSkip != null ? saved.poseSkip : 1;
+            state.settings.poseSkip = skip;
+            poseSkipGroup.querySelectorAll('.toggle-btn').forEach(b =>
+                b.classList.toggle('active', parseInt(b.dataset.skip, 10) === skip));
         }
     }
 
