@@ -70,7 +70,8 @@ def _job_meta(job: dict) -> dict:
     keep = ("id", "status", "progress", "current", "total", "model", "fps",
             "input_name", "created_at", "updated_at", "error", "info",
             "output_path", "log_path", "preview_path", "last_preview",
-            "stage", "input_path", "pose_enabled", "pose_output", "pose_info")
+            "stage", "input_path", "pose_enabled", "pose_output", "pose_info",
+            "pose_only")
     return {k: job.get(k) for k in keep if k in job}
 
 
@@ -348,10 +349,89 @@ def _run(job: dict, p: dict) -> None:
             f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
 
     npz_dir = os.path.join(DEPTH_DIR, job["id"])
+    pose_only = bool(p.get("pose_only", False))
     try:
-        import da3_video as dv   # 同目录引擎模块（模型进程内常驻）
-
         in_path = job["input_path"]
+        pose_enabled = bool(p.get("pose_enabled", False)) or pose_only
+        opc = None
+        if pose_enabled:
+            import openpose_client as opc
+            if not opc.check_server():
+                log("[警告] OpenPose 服务不可用，骨架输出将为空")
+                pose_enabled = False
+        os.makedirs(npz_dir, exist_ok=True)
+
+        # ---- 仅姿态提取模式：跳过深度推理，只做 OpenPose 骨架 ----
+        if pose_only:
+            log("模式: 仅姿态提取（不进行深度推理）")
+            log(f"OpenPose 服务: {opc.DEFAULT_SERVER_URL if opc else '不可用'}")
+            t0 = time.time()
+            cap = cv2.VideoCapture(in_path)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
+            if total <= 0:
+                cap.release()
+                raise RuntimeError("无法读取视频帧数")
+            job["status"] = "running"
+            job["progress"] = 0.05
+            job["pose_enabled"] = True
+            job["pose_only"] = True
+            job["current"], job["total"] = 0, total
+            _save_jobs()
+
+            for i in range(total):
+                if job.get("stop_requested"):
+                    log(f"收到停止指令，中断姿态提取（已处理 {i}/{total} 帧）")
+                    break
+                ok, bgr = cap.read()
+                if not ok:
+                    break
+                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                if opc is not None:
+                    kpts = opc.infer_pose(rgb)
+                    opc.save_pose_npz(kpts, os.path.join(npz_dir, f"pose_{i:06d}.npz"))
+                    if (i + 1) % 10 == 0 or (i + 1) == total:
+                        pose_frame = opc.draw_skeleton(kpts, src_h, src_w)
+                        cv2.imwrite(os.path.join(PREVIEW_DIR, f"{job['id']}_pose.png"), pose_frame)
+                job["current"] = i + 1
+                if (i + 1) % 10 == 0 or (i + 1) == total:
+                    el = time.time() - t0
+                    eta = el / max(i + 1, 1) * (total - i - 1)
+                    log(f"姿态提取 {i + 1}/{total}  耗时 {el:.1f}s  预计剩余 {eta:.1f}s")
+                if (i + 1) % 20 == 0:
+                    job["progress"] = round((i + 1) / max(total, 1) * 0.9, 3)
+                    job["updated_at"] = time.time()
+                    _save_jobs()
+            cap.release()
+
+            if job.get("stop_requested"):
+                job["status"] = "stopped"
+                job["progress"] = round(job.get("current", 0) / max(total, 1), 3)
+                _save_jobs()
+                return
+
+            # 渲染骨架视频（仅姿态模式下，骨架视频即为主输出）
+            job["stage"] = "render"
+            job["status"] = "render"
+            log("姿态提取完成，开始渲染骨架视频...")
+            job["progress"] = 0.92
+            _save_jobs()
+            pose_out = os.path.join(OUTPUT_DIR, job["id"] + "_pose.mp4")
+            pose_info = render_pose_video(npz_dir, in_path, pose_out, p)
+            job["output_path"] = pose_out
+            job["pose_output"] = pose_out
+            job["pose_info"] = pose_info
+            job["info"] = pose_info
+            job["progress"] = 1.0
+            job["status"] = "done"
+            _save_jobs()
+            log(f"完成: {pose_out} ({pose_info['frames']}帧 {pose_info['size']})")
+            return
+
+        # ---- 正常模式：深度推理 + 可选骨架 ----
+        import da3_video as dv   # 同目录引擎模块（模型进程内常驻）
         model = p.get("model", "da3-small")
         window, overlap = (1, 0) if p.get("frame_wise") else (8, 2)
         pose_enabled = bool(p.get("pose_enabled", False))
@@ -381,6 +461,7 @@ def _run(job: dict, p: dict) -> None:
         job["status"] = "running"
         job["progress"] = 0.02
         job["pose_enabled"] = pose_enabled
+        job["pose_only"] = False
         job["updated_at"] = time.time()
         _save_jobs()
 
@@ -556,6 +637,7 @@ def convert():
         "keep_audio": _b("keep_audio", "false") == "true",
         "per_frame": _b("per_frame", "true") == "true",
         "pose_enabled": _b("pose_enabled", "false") == "true",
+        "pose_only": _b("pose_only", "false") == "true",
     }
     if not params["fps"]:
         # 自动：保持原视频帧率，避免输出时长变化

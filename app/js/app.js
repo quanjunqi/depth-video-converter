@@ -54,6 +54,7 @@ const state = {
         resolution: 'min640',
         keepAudio: false,
         poseEnabled: false,
+        poseMode: 'off',  // off / both / only
     },
     processing: {
         startTime: 0,
@@ -1765,7 +1766,8 @@ async function startDa3Processing() {
         form.append('frame_wise', 'true');     // 逐帧处理深度估计
         form.append('keep_audio', String(!!state.settings.keepAudio));
         form.append('per_frame', 'true');      // 每帧全范围拉伸
-        form.append('pose_enabled', String(!!state.settings.poseEnabled));
+        form.append('pose_enabled', String(state.settings.poseMode === 'both' || state.settings.poseMode === 'only'));
+        form.append('pose_only', String(state.settings.poseMode === 'only'));
 
         const resp = await fetch(`${DA3_SERVER}/api/convert`, { method: 'POST', body: form });
         const data = await resp.json();
@@ -2032,6 +2034,18 @@ async function showTaskDetail(job) {
     $('progress-section').style.display = 'block';
     const pv = $('processing-preview');
     if (pv) pv.style.display = '';
+    // 仅姿态模式：隐藏深度帧面板，只显示骨架帧
+    const poseOnly = !!job.pose_only;
+    const depthCard = document.querySelector('.preview-frame-card:nth-child(3)');
+    const poseArrow = $('pose-arrow');
+    const poseCard = $('pose-frame-card');
+    if (poseOnly) {
+        if (depthCard) depthCard.style.display = 'none';
+        if (poseArrow) poseArrow.style.display = '';
+        if (poseCard) poseCard.style.display = '';
+    } else {
+        if (depthCard) depthCard.style.display = '';
+    }
     const plog = $('processing-log');
     if (plog) plog.style.display = '';
     await pollTaskDetail(job.id);
@@ -2144,7 +2158,8 @@ async function pollTaskDetail(jobId) {
             }
         }
         $('processing-status').textContent = s.status === 'queued'
-            ? '任务排队中（最多同时 2 个）...' : '正在逐帧处理深度估计...';
+            ? '任务排队中（最多同时 2 个）...'
+            : (s.pose_only ? '正在逐帧提取姿态（OpenPose）...' : '正在逐帧处理深度估计...');
         // 停止按钮显隐
         const taskStopBtn = $('task-stop-btn');
         if (taskStopBtn) {
@@ -2586,7 +2601,7 @@ function bindEvents() {
         saveSettings();
     });
 
-    // 同时输出骨架开关
+    // 姿态输出模式（关闭 / 深度+骨架 / 仅骨架）
     const poseGroup = $('pose-group');
     if (poseGroup) {
         poseGroup.addEventListener('click', (e) => {
@@ -2594,7 +2609,8 @@ function bindEvents() {
             if (!btn) return;
             poseGroup.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            state.settings.poseEnabled = btn.dataset.pose === 'true';
+            state.settings.poseMode = btn.dataset.pose;
+            state.settings.poseEnabled = btn.dataset.pose !== 'off';
             saveSettings();
         });
     }
@@ -2810,8 +2826,11 @@ async function restoreSession() {
             b.classList.toggle('active', b.dataset.audio === String(!!saved.keepAudio)));
         const poseGroup = $('pose-group');
         if (poseGroup) {
+            const mode = saved.poseMode || (saved.poseEnabled ? 'both' : 'off');
+            state.settings.poseMode = mode;
+            state.settings.poseEnabled = mode !== 'off';
             poseGroup.querySelectorAll('.toggle-btn').forEach(b =>
-                b.classList.toggle('active', b.dataset.pose === String(!!saved.poseEnabled)));
+                b.classList.toggle('active', b.dataset.pose === mode));
         }
     }
 

@@ -216,12 +216,13 @@
 
                             <div class="setting-row">
                                 <label class="setting-label">
-                                    <span>同时输出骨架</span>
-                                    <span class="setting-desc">逐帧人体姿态估计，额外输出纯骨架视频（黑底白骨架，支持多人）</span>
+                                    <span>姿态输出</span>
+                                    <span class="setting-desc">OpenPose 人体姿态估计，输出纯骨架视频（黑底彩色骨架，COCO 18关键点）</span>
                                 </label>
                                 <div class="toggle-group" id="pose-group">
-                                    <button class="toggle-btn active" data-pose="false">关闭</button>
-                                    <button class="toggle-btn" data-pose="true">开启</button>
+                                    <button class="toggle-btn active" data-pose="off">关闭</button>
+                                    <button class="toggle-btn" data-pose="both">深度+骨架</button>
+                                    <button class="toggle-btn" data-pose="only">仅骨架</button>
                                 </div>
                             </div>
                         </div>
